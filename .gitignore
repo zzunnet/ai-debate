@@ -1,0 +1,7 @@
+.env
+.venv/
+debate.db
+__pycache__/
+.idea/
+exports/
+*.pyc

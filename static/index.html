@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 토론 도구 - Claude vs Gemini</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f9fafb; }
+        .prose h3 { margin-top: 1rem; margin-bottom: 0.5rem; font-weight: 600; color: #1f2937; border-bottom: 1px solid #e5e7eb; }
+        .prose ul { list-style-type: disc; padding-left: 1.25rem; }
+        .prose p { margin-bottom: 0.75rem; }
+        .streaming-token { animation: fadeIn 0.2s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .step-active { color: #3b82f6; border-color: #3b82f6; font-weight: 700; }
+        .step-inactive { color: #9ca3af; border-color: #e5e7eb; }
+    </style>
+</head>
+<body class="min-h-screen text-gray-900">
+
+    <!-- Header & Stats -->
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-50">
+        <div class="max-row mx-auto px-4 py-3 flex justify-between items-center max-w-7xl">
+            <h1 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+                <span class="text-blue-600">⚖️</span> AI Debate Hub
+            </h1>
+            <div class="flex items-center gap-4">
+                <div id="session-stats" class="hidden flex items-center gap-3">
+                    <span id="total-tokens" class="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-xs font-semibold">Tokens: 0</span>
+                    <span id="total-cost" class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-semibold">Cost: $0.00</span>
+                </div>
+                <select id="history-dropdown" class="text-sm border rounded-md px-2 py-1 outline-none">
+                    <option value="">과거 기록 보기</option>
+                </select>
+                <button id="new-debate-btn" class="hidden bg-blue-600 text-white px-4 py-1.5 rounded-md text-sm font-semibold hover:bg-blue-700 transition">새 토론</button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 py-6">
+
+        <!-- Initial Input View -->
+        <section id="setup-view" class="max-w-2xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 p-8 mt-10">
+            <h2 class="text-2xl font-bold mb-6 text-center">어떤 주제로 토론할까요?</h2>
+            <div class="space-y-4">
+                <textarea id="question-input" rows="4" class="w-full border border-gray-300 rounded-lg p-4 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" placeholder="질문을 입력하세요... (예: 생성형 AI가 개발자의 일자리를 대체할 것인가?)"></textarea>
+                <div class="flex items-center justify-between">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="quick-mode-checkbox" checked class="w-4 h-4 text-blue-600 rounded">
+                        <span class="text-sm text-gray-600">빠른 토론 (Round 1만 진행)</span>
+                    </label>
+                    <button id="start-btn" class="bg-blue-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-blue-700 transition shadow-md active:scale-95">토론 시작하기</button>
+                </div>
+            </div>
+            <div class="mt-8 pt-6 border-t border-gray-100">
+                <p class="text-xs text-gray-400 text-center">입력된 내용은 Claude와 Gemini 모델에게 전송됩니다.</p>
+            </div>
+        </section>
+
+        <!-- Debate View (Hidden by default) -->
+        <section id="debate-view" class="hidden space-y-8">
+            
+            <!-- Progress Bar -->
+            <div class="flex justify-center items-center gap-8 mb-4">
+                <div id="step-r1" class="flex items-center gap-2 step-inactive">
+                    <span class="w-8 h-8 rounded-full border-2 flex items-center justify-center text-sm">1</span>
+                    <span>Round 1</span>
+                </div>
+                <div class="w-12 h-0.5 bg-gray-200"></div>
+                <div id="step-r2" class="flex items-center gap-2 step-inactive">
+                    <span class="w-8 h-8 rounded-full border-2 flex items-center justify-center text-sm">2</span>
+                    <span>Round 2</span>
+                </div>
+                <div class="w-12 h-0.5 bg-gray-200"></div>
+                <div id="step-judge" class="flex items-center gap-2 step-inactive">
+                    <span class="w-8 h-8 rounded-full border-2 flex items-center justify-center text-sm">3</span>
+                    <span>심판 판정</span>
+                </div>
+            </div>
+
+            <!-- Debate Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Claude Card -->
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col min-h-[500px]">
+                    <div class="bg-amber-50 px-4 py-3 border-b border-amber-100 flex justify-between items-center">
+                        <div class="flex items-center gap-2">
+                            <span class="w-3 h-3 bg-orange-500 rounded-full"></span>
+                            <span class="font-bold text-amber-900">Claude 3.5 Sonnet</span>
+                        </div>
+                        <span id="claude-token-badge" class="text-[10px] bg-amber-200 text-amber-800 px-2 py-0.5 rounded font-mono">0 tokens</span>
+                    </div>
+                    <div id="claude-content" class="p-6 prose max-w-none flex-grow overflow-y-auto text-sm leading-relaxed">
+                        <div class="text-gray-300 italic">준비 중...</div>
+                    </div>
+                </div>
+
+                <!-- Gemini Card -->
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col min-h-[500px]">
+                    <div class="bg-blue-50 px-4 py-3 border-b border-blue-100 flex justify-between items-center">
+                        <div class="flex items-center gap-2">
+                            <span class="w-3 h-3 bg-blue-500 rounded-full"></span>
+                            <span class="font-bold text-blue-900">Gemini 2.0 Pro</span>
+                        </div>
+                        <span id="gemini-token-badge" class="text-[10px] bg-blue-200 text-blue-800 px-2 py-0.5 rounded font-mono">0 tokens</span>
+                    </div>
+                    <div id="gemini-content" class="p-6 prose max-w-none flex-grow overflow-y-auto text-sm leading-relaxed">
+                        <div class="text-gray-300 italic">준비 중...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Judge Card -->
+            <div id="judge-container" class="hidden">
+                <div class="bg-white rounded-xl shadow-lg border-2 border-indigo-100 overflow-hidden">
+                    <div class="bg-indigo-600 px-6 py-4 flex justify-between items-center">
+                        <div class="flex items-center gap-2 text-white">
+                            <span>⚖️</span>
+                            <span class="font-bold tracking-wide">심판의 최종 권고</span>
+                        </div>
+                        <span id="judge-token-badge" class="text-[10px] bg-indigo-400 text-white px-2 py-0.5 rounded font-mono">0 tokens</span>
+                    </div>
+                    <div id="judge-content" class="p-8 prose max-w-none text-gray-800 leading-relaxed">
+                        <div class="flex flex-col items-center justify-center py-10 gap-4">
+                            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                            <p class="text-indigo-600 font-medium">토론 내용을 분석하고 있습니다...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stop Button (Sticky Bottom) -->
+            <div id="control-panel" class="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 transition-all duration-300">
+                <button id="stop-btn" class="bg-red-500 text-white px-6 py-3 rounded-full shadow-lg hover:bg-red-600 font-bold flex items-center gap-2 active:scale-95">
+                    <span class="w-3 h-3 bg-white rounded-sm"></span> 정지
+                </button>
+            </div>
+
+            <!-- Checkpoint Overlay -->
+            <div id="checkpoint-ui" class="hidden fixed inset-0 bg-black/20 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+                <div class="bg-white rounded-2xl shadow-2xl border border-gray-200 p-8 max-w-lg w-full transform transition-all">
+                    <h3 class="text-xl font-bold mb-2">Round 완료 - 어떻게 진행할까요?</h3>
+                    <p class="text-gray-600 text-sm mb-6">사용자의 의견을 주입하거나, 바로 결론을 볼 수 있습니다.</p>
+                    
+                    <div id="injection-area" class="hidden mb-6">
+                        <textarea id="injection-input" rows="4" class="w-full border rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="여기에 추가 의견이나 질문을 적어주세요..."></textarea>
+                        <div class="flex justify-end gap-2 mt-2">
+                            <button id="cancel-inject-btn" class="text-gray-400 text-sm hover:text-gray-600">취소</button>
+                            <button id="confirm-inject-btn" class="bg-blue-600 text-white px-4 py-1.5 rounded-md text-sm font-bold">의견 주입 후 계속</button>
+                        </div>
+                    </div>
+
+                    <div id="checkpoint-buttons" class="grid grid-cols-2 gap-3">
+                        <button data-action="continue" class="bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition">계속 진행</button>
+                        <button id="show-inject-btn" class="bg-amber-100 text-amber-700 py-3 rounded-xl font-bold hover:bg-amber-200 transition">의견 추가하기</button>
+                        <button data-action="skip_to_judge" class="bg-indigo-100 text-indigo-700 py-3 rounded-xl font-bold hover:bg-indigo-200 transition">바로 결론으로</button>
+                        <button data-action="stop" class="bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition">토론 중단</button>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- Final Actions (Hidden until done) -->
+        <section id="final-actions" class="hidden flex justify-center gap-4 mt-10">
+            <button id="export-btn" class="bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-emerald-700 transition shadow-md flex items-center gap-2">
+                📥 마크다운으로 내보내기
+            </button>
+            <button id="restart-btn" class="bg-gray-200 text-gray-700 px-6 py-3 rounded-xl font-bold hover:bg-gray-300 transition shadow-sm">
+                🔄 새 토론 시작
+            </button>
+        </section>
+
+    </main>
+
+    <script>
+        // State
+        let currentSessionId = null;
+        let eventSource = null;
+        let claudeMarkdown = "";
+        let geminiMarkdown = "";
+        let judgeMarkdown = "";
+
+        // Elements
+        const setupView = document.getElementById('setup-view');
+        const debateView = document.getElementById('debate-view');
+        const questionInput = document.getElementById('question-input');
+        const quickModeCheckbox = document.getElementById('quick-mode-checkbox');
+        const startBtn = document.getElementById('start-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const checkpointUi = document.getElementById('checkpoint-ui');
+        const injectionArea = document.getElementById('injection-area');
+        const injectionInput = document.getElementById('injection-input');
+        const finalActions = document.getElementById('final-actions');
+        const historyDropdown = document.getElementById('history-dropdown');
+        
+        const claudeContent = document.getElementById('claude-content');
+        const geminiContent = document.getElementById('gemini-content');
+        const judgeContent = document.getElementById('judge-content');
+        const judgeContainer = document.getElementById('judge-container');
+
+        const claudeTokenBadge = document.getElementById('claude-token-badge');
+        const geminiTokenBadge = document.getElementById('gemini-token-badge');
+        const judgeTokenBadge = document.getElementById('judge-token-badge');
+        const totalTokensBadge = document.getElementById('total-tokens');
+        const totalCostBadge = document.getElementById('total-cost');
+        const sessionStats = document.getElementById('session-stats');
+
+        // Init history
+        fetchHistory();
+
+        // ── Event Listeners ───────────────────────────────────────────────────
+
+        startBtn.onclick = async () => {
+            const question = questionInput.value.trim();
+            if (!question) return alert("질문을 입력해 주세요.");
+            
+            const res = await fetch('/sessions/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    question: question,
+                    quick_mode: quickModeCheckbox.checked
+                })
+            });
+            const data = await res.json();
+            currentSessionId = data.id;
+            startStreaming(currentSessionId);
+            
+            setupView.classList.add('hidden');
+            debateView.classList.remove('hidden');
+            sessionStats.classList.remove('hidden');
+            document.getElementById('new-debate-btn').classList.remove('hidden');
+        };
+
+        stopBtn.onclick = () => sendAction('stop');
+
+        document.getElementById('show-inject-btn').onclick = () => {
+            document.getElementById('checkpoint-buttons').classList.add('hidden');
+            injectionArea.classList.remove('hidden');
+        };
+
+        document.getElementById('cancel-inject-btn').onclick = () => {
+            injectionArea.classList.add('hidden');
+            document.getElementById('checkpoint-buttons').classList.remove('hidden');
+        };
+
+        document.getElementById('confirm-inject-btn').onclick = () => {
+            const comment = injectionInput.value.trim();
+            if (!comment) return alert("의견을 입력해 주세요.");
+            sendAction('inject', comment);
+            checkpointUi.classList.add('hidden');
+            injectionArea.classList.add('hidden');
+            document.getElementById('checkpoint-buttons').classList.remove('hidden');
+            injectionInput.value = "";
+        };
+
+        document.querySelectorAll('[data-action]').forEach(btn => {
+            btn.onclick = () => {
+                const action = btn.getAttribute('data-action');
+                if (action !== 'inject') {
+                    sendAction(action);
+                    checkpointUi.classList.add('hidden');
+                }
+            };
+        });
+
+        document.getElementById('export-btn').onclick = async () => {
+            const res = await fetch(`/sessions/${currentSessionId}/export`, { method: 'POST' });
+            const data = await res.json();
+            alert(`내보내기 완료: ${data.path}`);
+        };
+
+        document.getElementById('restart-btn').onclick = () => location.reload();
+        document.getElementById('new-debate-btn').onclick = () => location.reload();
+
+        historyDropdown.onchange = (e) => {
+            if (e.target.value) loadHistorySession(e.target.value);
+        };
+
+        // ── Functions ─────────────────────────────────────────────────────────
+
+        function startStreaming(sessionId) {
+            if (eventSource) eventSource.close();
+            
+            eventSource = new EventSource(`/sessions/${sessionId}/stream`);
+            
+            eventSource.onmessage = (e) => {
+                const data = JSON.parse(e.data);
+                handleEvent(data);
+            };
+
+            eventSource.onerror = (e) => {
+                console.error("SSE Error:", e);
+                // Attempt to reconnect after delay if not done
+            };
+        }
+
+        function handleEvent(event) {
+            switch(event.type) {
+                case "round_start":
+                    updateProgress(event.round);
+                    if (event.model === "claude") {
+                        claudeMarkdown = "";
+                        claudeContent.innerHTML = "";
+                    } else {
+                        geminiMarkdown = "";
+                        geminiContent.innerHTML = "";
+                    }
+                    break;
+
+                case "token":
+                    if (event.model === "claude") {
+                        claudeMarkdown += event.text;
+                        claudeContent.innerHTML = marked.parse(claudeMarkdown);
+                        claudeContent.scrollTop = claudeContent.scrollHeight;
+                    } else {
+                        geminiMarkdown += event.text;
+                        geminiContent.innerHTML = marked.parse(geminiMarkdown);
+                        geminiContent.scrollTop = geminiContent.scrollHeight;
+                    }
+                    break;
+
+                case "round_complete":
+                    if (event.model === "claude") {
+                        claudeTokenBadge.innerText = `${event.tokens_used} tokens`;
+                    } else {
+                        geminiTokenBadge.innerText = `${event.tokens_used} tokens`;
+                    }
+                    break;
+
+                case "checkpoint":
+                    checkpointUi.classList.remove('hidden');
+                    break;
+
+                case "judge_start":
+                    updateProgress('judge');
+                    judgeContainer.classList.remove('hidden');
+                    judgeMarkdown = "";
+                    judgeContent.innerHTML = "";
+                    judgeContainer.scrollIntoView({ behavior: 'smooth' });
+                    break;
+
+                case "judge_token":
+                    judgeMarkdown += event.text;
+                    judgeContent.innerHTML = marked.parse(judgeMarkdown);
+                    break;
+
+                case "judge_complete":
+                    judgeTokenBadge.innerText = `${event.tokens_used} tokens`;
+                    break;
+
+                case "session_complete":
+                    eventSource.close();
+                    totalTokensBadge.innerText = `Tokens: ${event.total_tokens_input + event.total_tokens_output}`;
+                    totalCostBadge.innerText = `Cost: $${event.estimated_cost_usd}`;
+                    finalActions.classList.remove('hidden');
+                    document.getElementById('control-panel').classList.add('opacity-0', 'pointer-events-none');
+                    break;
+
+                case "error":
+                    alert(`Error (${event.model || 'System'}): ${event.message}`);
+                    break;
+            }
+        }
+
+        async function sendAction(action, comment = null) {
+            await fetch(`/sessions/${currentSessionId}/action`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action, comment })
+            });
+        }
+
+        function updateProgress(step) {
+            const r1 = document.getElementById('step-r1');
+            const r2 = document.getElementById('step-r2');
+            const judge = document.getElementById('step-judge');
+
+            [r1, r2, judge].forEach(el => {
+                el.classList.remove('step-active');
+                el.classList.add('step-inactive');
+            });
+
+            if (step === 1) r1.className = 'flex items-center gap-2 step-active';
+            if (step === 2) r2.className = 'flex items-center gap-2 step-active';
+            if (step === 'judge') judge.className = 'flex items-center gap-2 step-active';
+        }
+
+        async function fetchHistory() {
+            const res = await fetch('/sessions/');
+            const data = await res.json();
+            data.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.id;
+                opt.text = `${s.created_at.slice(5, 16)}: ${s.question.slice(0, 20)}...`;
+                historyDropdown.add(opt);
+            });
+        }
+
+        async function loadHistorySession(id) {
+            const res = await fetch(`/sessions/${id}`);
+            const session = await res.json();
+            
+            currentSessionId = session.id;
+            setupView.classList.add('hidden');
+            debateView.classList.remove('hidden');
+            sessionStats.classList.remove('hidden');
+            document.getElementById('new-debate-btn').classList.remove('hidden');
+            document.getElementById('control-panel').classList.add('hidden');
+            
+            // Clear contents
+            claudeContent.innerHTML = "";
+            geminiContent.innerHTML = "";
+            judgeContent.innerHTML = "";
+            
+            session.messages.forEach(msg => {
+                const html = marked.parse(msg.content);
+                if (msg.model === 'claude') {
+                    claudeContent.innerHTML += html;
+                } else if (msg.model === 'gemini') {
+                    geminiContent.innerHTML += html;
+                } else if (msg.model === 'judge') {
+                    judgeContainer.classList.remove('hidden');
+                    judgeContent.innerHTML = html;
+                }
+            });
+
+            totalTokensBadge.innerText = `Tokens: ${session.total_tokens_input + session.total_tokens_output}`;
+            totalCostBadge.innerText = `Cost: $${session.estimated_cost_usd}`;
+            finalActions.classList.remove('hidden');
+            
+            if (session.state === 'DONE') updateProgress('judge');
+        }
+    </script>
+</body>
+</html>
