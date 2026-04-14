@@ -28,16 +28,21 @@ from app.config import (
 
 logger = logging.getLogger(__name__)
 
-# ── Client initialisation ──────────────────────────────────────────────────────
+# ── Client helpers (per-request, no global state) ─────────────────────────────
 
-_anthropic_client: anthropic.AsyncAnthropic | None = None
-_openai_client = None  # lazy import
+def _get_anthropic_client(api_key: str | None) -> anthropic.AsyncAnthropic | None:
+    key = api_key or ANTHROPIC_API_KEY
+    if not key:
+        return None
+    return anthropic.AsyncAnthropic(api_key=key)
 
-if ANTHROPIC_API_KEY:
-    _anthropic_client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
 
-if GOOGLE_API_KEY:
-    genai.configure(api_key=GOOGLE_API_KEY)
+def _configure_gemini(api_key: str | None) -> bool:
+    key = api_key or GOOGLE_API_KEY
+    if not key:
+        return False
+    genai.configure(api_key=key)
+    return True
 
 
 @dataclass
@@ -59,14 +64,16 @@ async def stream_claude(
     max_tokens: int,
     on_token: TokenCallback,
     model: str = CLAUDE_DEBATER_MODEL,
+    api_key: str | None = None,
 ) -> StreamResult:
-    if _anthropic_client is None:
+    client = _get_anthropic_client(api_key)
+    if client is None:
         return StreamResult(error="ANTHROPIC_API_KEY not configured")
 
     result = StreamResult()
     try:
         async with asyncio.timeout(LLM_TIMEOUT_SECONDS):
-            async with _anthropic_client.messages.stream(
+            async with client.messages.stream(
                 model=model,
                 max_tokens=max_tokens,
                 system=system,
@@ -95,8 +102,9 @@ async def stream_gemini(
     max_tokens: int,
     on_token: TokenCallback,
     model: str = GEMINI_DEBATER_MODEL,
+    api_key: str | None = None,
 ) -> StreamResult:
-    if not GOOGLE_API_KEY:
+    if not _configure_gemini(api_key):
         return StreamResult(error="GOOGLE_API_KEY not configured")
 
     loop = asyncio.get_event_loop()
@@ -194,16 +202,18 @@ async def stream_openai(
     max_tokens: int,
     on_token: TokenCallback,
     model: str = JUDGE_MODEL_OPENAI,
+    api_key: str | None = None,
 ) -> StreamResult:
     try:
         from openai import AsyncOpenAI
     except ImportError:
         return StreamResult(error="openai package not installed")
 
-    if not OPENAI_API_KEY:
+    key = api_key or OPENAI_API_KEY
+    if not key:
         return StreamResult(error="OPENAI_API_KEY not configured")
 
-    client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+    client = AsyncOpenAI(api_key=key)
     result = StreamResult()
     try:
         async with asyncio.timeout(LLM_TIMEOUT_SECONDS):
@@ -239,11 +249,14 @@ async def stream_judge(
     user: str,
     max_tokens: int,
     on_token: TokenCallback,
+    anthropic_key: str | None = None,
+    openai_key: str | None = None,
 ) -> StreamResult:
-    if USE_OPENAI_JUDGE:
-        result = await stream_openai(system, user, max_tokens, on_token, model=JUDGE_MODEL_OPENAI)
+    use_openai = bool(openai_key or OPENAI_API_KEY)
+    if use_openai:
+        result = await stream_openai(system, user, max_tokens, on_token, model=JUDGE_MODEL_OPENAI, api_key=openai_key)
         if result.error:
             logger.warning("OpenAI judge failed, falling back to Claude: %s", result.error)
-            result = await stream_claude(system, user, max_tokens, on_token, model=JUDGE_MODEL_CLAUDE)
+            result = await stream_claude(system, user, max_tokens, on_token, model=JUDGE_MODEL_CLAUDE, api_key=anthropic_key)
         return result
-    return await stream_claude(system, user, max_tokens, on_token, model=JUDGE_MODEL_CLAUDE)
+    return await stream_claude(system, user, max_tokens, on_token, model=JUDGE_MODEL_CLAUDE, api_key=anthropic_key)

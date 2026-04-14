@@ -7,6 +7,9 @@ class CreateSessionRequest(BaseModel):
     question: str = Field(..., min_length=5, max_length=2000)
     quick_mode: bool = True  # default: Round1 + Judge only (3 LLM calls)
     profile: Optional[str] = Field(None, max_length=2000)
+    anthropic_api_key: Optional[str] = Field(None, max_length=300)
+    google_api_key: Optional[str] = Field(None, max_length=300)
+    openai_api_key: Optional[str] = Field(None, max_length=300)
 
 
 class ActionRequest(BaseModel):

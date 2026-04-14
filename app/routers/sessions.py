@@ -42,12 +42,15 @@ async def create_session(
     await db.commit()
     await db.refresh(session)
 
-    # Start the background debate task
+    # Start the background debate task (API keys held in memory only, never persisted)
     state = create_state(
         session_id=session.id,
         question=session.question,
         profile=session.profile,
         quick_mode=session.quick_mode,
+        anthropic_api_key=req.anthropic_api_key or None,
+        google_api_key=req.google_api_key or None,
+        openai_api_key=req.openai_api_key or None,
     )
     start_debate(state, lambda: AsyncSessionLocal())
 

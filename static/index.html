@@ -35,6 +35,10 @@
                     <option value="">과거 기록 보기</option>
                 </select>
                 <button id="new-debate-btn" class="hidden bg-blue-600 text-white px-4 py-1.5 rounded-md text-sm font-semibold hover:bg-blue-700 transition">새 토론</button>
+                <button id="settings-btn" class="flex items-center gap-1.5 text-sm border border-gray-300 px-3 py-1.5 rounded-md hover:bg-gray-50 transition" title="API 키 설정">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    <span id="api-key-status" class="font-medium text-gray-600">API 키 설정</span>
+                </button>
             </div>
         </div>
     </header>
@@ -174,6 +178,40 @@
 
     </main>
 
+    <!-- API Key Settings Modal -->
+    <div id="settings-modal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl border border-gray-200 p-8 max-w-lg w-full">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold">API 키 설정</h3>
+                <button id="settings-close-btn" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+            </div>
+            <p class="text-sm text-gray-500 mb-6 bg-blue-50 border border-blue-100 rounded-lg p-3">
+                🔒 키는 <strong>이 브라우저에만 저장</strong>되며 서버에 전달되더라도 DB에 기록되지 않습니다. Claude(필수) + Gemini(필수) 키가 있어야 토론이 시작됩니다.
+            </p>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Anthropic API Key <span class="text-red-500">*</span></label>
+                    <input type="password" id="input-anthropic-key" placeholder="sk-ant-..." class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-mono">
+                    <p class="text-xs text-gray-400 mt-1">Claude 토론자 + 심판용. <a href="https://console.anthropic.com/settings/keys" target="_blank" class="text-blue-500 hover:underline">발급 받기 →</a></p>
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Google AI API Key <span class="text-red-500">*</span></label>
+                    <input type="password" id="input-google-key" placeholder="AIza..." class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-mono">
+                    <p class="text-xs text-gray-400 mt-1">Gemini 토론자용. <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-blue-500 hover:underline">발급 받기 →</a></p>
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">OpenAI API Key <span class="text-gray-400 text-xs font-normal">(선택 — 심판 강화용)</span></label>
+                    <input type="password" id="input-openai-key" placeholder="sk-..." class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-mono">
+                    <p class="text-xs text-gray-400 mt-1">있으면 GPT-4o가 심판, 없으면 Claude가 대신합니다.</p>
+                </div>
+            </div>
+            <div class="flex justify-between items-center mt-8">
+                <button id="settings-clear-btn" class="text-sm text-red-400 hover:text-red-600">저장된 키 삭제</button>
+                <button id="settings-save-btn" class="bg-blue-600 text-white px-6 py-2.5 rounded-lg font-bold hover:bg-blue-700 transition">저장</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // State
         let currentSessionId = null;
@@ -207,6 +245,88 @@
         const totalCostBadge = document.getElementById('total-cost');
         const sessionStats = document.getElementById('session-stats');
 
+        // ── API Key management ────────────────────────────────────────────────
+        const STORAGE_KEYS = {
+            anthropic: 'ai_debate_anthropic_key',
+            google: 'ai_debate_google_key',
+            openai: 'ai_debate_openai_key',
+        };
+
+        function loadApiKeys() {
+            return {
+                anthropic: localStorage.getItem(STORAGE_KEYS.anthropic) || '',
+                google: localStorage.getItem(STORAGE_KEYS.google) || '',
+                openai: localStorage.getItem(STORAGE_KEYS.openai) || '',
+            };
+        }
+
+        function saveApiKeys(keys) {
+            if (keys.anthropic) localStorage.setItem(STORAGE_KEYS.anthropic, keys.anthropic);
+            else localStorage.removeItem(STORAGE_KEYS.anthropic);
+            if (keys.google) localStorage.setItem(STORAGE_KEYS.google, keys.google);
+            else localStorage.removeItem(STORAGE_KEYS.google);
+            if (keys.openai) localStorage.setItem(STORAGE_KEYS.openai, keys.openai);
+            else localStorage.removeItem(STORAGE_KEYS.openai);
+        }
+
+        function clearApiKeys() {
+            Object.values(STORAGE_KEYS).forEach(k => localStorage.removeItem(k));
+        }
+
+        function updateKeyStatus() {
+            const keys = loadApiKeys();
+            const hasRequired = keys.anthropic && keys.google;
+            const statusEl = document.getElementById('api-key-status');
+            if (hasRequired) {
+                statusEl.textContent = '키 설정됨 ✓';
+                statusEl.classList.remove('text-gray-600');
+                statusEl.classList.add('text-green-600');
+            } else {
+                statusEl.textContent = 'API 키 설정';
+                statusEl.classList.remove('text-green-600');
+                statusEl.classList.add('text-gray-600');
+            }
+            return hasRequired;
+        }
+
+        const settingsModal = document.getElementById('settings-modal');
+
+        document.getElementById('settings-btn').onclick = () => {
+            const keys = loadApiKeys();
+            document.getElementById('input-anthropic-key').value = keys.anthropic;
+            document.getElementById('input-google-key').value = keys.google;
+            document.getElementById('input-openai-key').value = keys.openai;
+            settingsModal.classList.remove('hidden');
+        };
+
+        document.getElementById('settings-close-btn').onclick = () => settingsModal.classList.add('hidden');
+        settingsModal.onclick = (e) => { if (e.target === settingsModal) settingsModal.classList.add('hidden'); };
+
+        document.getElementById('settings-save-btn').onclick = () => {
+            saveApiKeys({
+                anthropic: document.getElementById('input-anthropic-key').value.trim(),
+                google: document.getElementById('input-google-key').value.trim(),
+                openai: document.getElementById('input-openai-key').value.trim(),
+            });
+            updateKeyStatus();
+            settingsModal.classList.add('hidden');
+        };
+
+        document.getElementById('settings-clear-btn').onclick = () => {
+            if (!confirm('저장된 API 키를 모두 삭제할까요?')) return;
+            clearApiKeys();
+            document.getElementById('input-anthropic-key').value = '';
+            document.getElementById('input-google-key').value = '';
+            document.getElementById('input-openai-key').value = '';
+            updateKeyStatus();
+        };
+
+        // Init key status
+        if (!updateKeyStatus()) {
+            // First visit — open modal automatically
+            setTimeout(() => document.getElementById('settings-btn').click(), 300);
+        }
+
         // Init history
         fetchHistory();
 
@@ -215,13 +335,23 @@
         startBtn.onclick = async () => {
             const question = questionInput.value.trim();
             if (!question) return alert("질문을 입력해 주세요.");
-            
+
+            const keys = loadApiKeys();
+            if (!keys.anthropic || !keys.google) {
+                alert("토론을 시작하려면 Anthropic과 Google API 키가 필요합니다.\n오른쪽 상단 'API 키 설정' 버튼을 클릭해 입력해 주세요.");
+                document.getElementById('settings-btn').click();
+                return;
+            }
+
             const res = await fetch('/sessions/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     question: question,
-                    quick_mode: quickModeCheckbox.checked
+                    quick_mode: quickModeCheckbox.checked,
+                    anthropic_api_key: keys.anthropic,
+                    google_api_key: keys.google,
+                    openai_api_key: keys.openai || null,
                 })
             });
             const data = await res.json();
