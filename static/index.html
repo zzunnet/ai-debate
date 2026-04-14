@@ -178,6 +178,10 @@
 
     </main>
 
+    <footer class="text-center py-4 mt-4">
+        <span id="version-badge" class="text-xs text-gray-400 font-mono bg-gray-100 px-2 py-1 rounded cursor-help" title="배포된 버전">v...</span>
+    </footer>
+
     <!-- API Key Settings Modal -->
     <div id="settings-modal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl shadow-2xl border border-gray-200 p-8 max-w-lg w-full">
@@ -347,6 +351,13 @@
             document.getElementById('input-openai-key').value = '';
             updateKeyStatus();
         };
+
+        // ── Version display ───────────────────────────────────────────────────
+        fetch('/version').then(r => r.json()).then(v => {
+            const badge = document.getElementById('version-badge');
+            badge.textContent = v.date ? `${v.commit} · ${v.date}` : v.commit;
+            badge.title = `GitHub commit: ${v.commit}`;
+        });
 
         // Init key status
         if (!updateKeyStatus()) {
