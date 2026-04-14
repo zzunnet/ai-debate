@@ -51,6 +51,8 @@ async def create_session(
         anthropic_api_key=req.anthropic_api_key or None,
         google_api_key=req.google_api_key or None,
         openai_api_key=req.openai_api_key or None,
+        claude_model=req.claude_model or None,
+        gemini_model=req.gemini_model or None,
     )
     start_debate(state, lambda: AsyncSessionLocal())
 

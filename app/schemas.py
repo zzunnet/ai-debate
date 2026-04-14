@@ -10,6 +10,8 @@ class CreateSessionRequest(BaseModel):
     anthropic_api_key: Optional[str] = Field(None, max_length=300)
     google_api_key: Optional[str] = Field(None, max_length=300)
     openai_api_key: Optional[str] = Field(None, max_length=300)
+    claude_model: Optional[str] = Field(None, max_length=100)
+    gemini_model: Optional[str] = Field(None, max_length=100)
 
 
 class ActionRequest(BaseModel):

@@ -54,6 +54,8 @@ class DebateState:
     anthropic_api_key: str | None = None
     google_api_key: str | None = None
     openai_api_key: str | None = None
+    claude_model: str = field(default_factory=lambda: cfg.CLAUDE_DEBATER_MODEL)
+    gemini_model: str = field(default_factory=lambda: cfg.GEMINI_DEBATER_MODEL)
 
     # SSE event log — append-only, clients replay from index 0
     events: list[dict] = field(default_factory=list)
@@ -97,6 +99,8 @@ def create_state(
     anthropic_api_key: str | None = None,
     google_api_key: str | None = None,
     openai_api_key: str | None = None,
+    claude_model: str | None = None,
+    gemini_model: str | None = None,
 ) -> DebateState:
     state = DebateState(
         session_id=session_id,
@@ -106,6 +110,8 @@ def create_state(
         anthropic_api_key=anthropic_api_key,
         google_api_key=google_api_key,
         openai_api_key=openai_api_key,
+        claude_model=claude_model or cfg.CLAUDE_DEBATER_MODEL,
+        gemini_model=gemini_model or cfg.GEMINI_DEBATER_MODEL,
     )
     _states[session_id] = state
     return state
@@ -146,10 +152,10 @@ async def _run_round1_model(
         _push(state, {"type": "token", "model": model_key, "text": text})
 
     if model_key == "claude":
-        result: StreamResult = await stream_claude(system, user, cfg.ROUND1_MAX_TOKENS, on_token, api_key=state.anthropic_api_key)
+        result: StreamResult = await stream_claude(system, user, cfg.ROUND1_MAX_TOKENS, on_token, model=state.claude_model, api_key=state.anthropic_api_key)
     else:
         prompt = f"{system}\n\n{user}"
-        result = await stream_gemini(prompt, cfg.ROUND1_MAX_TOKENS, on_token, api_key=state.google_api_key)
+        result = await stream_gemini(prompt, cfg.ROUND1_MAX_TOKENS, on_token, model=state.gemini_model, api_key=state.google_api_key)
 
     if result.error:
         await _push_async(state, {"type": "error", "model": model_key, "message": result.error})
@@ -203,10 +209,10 @@ async def _run_round2_model(
         _push(state, {"type": "token", "model": model_key, "text": text})
 
     if model_key == "claude":
-        result = await stream_claude(system, user, cfg.ROUND2_MAX_TOKENS, on_token, api_key=state.anthropic_api_key)
+        result = await stream_claude(system, user, cfg.ROUND2_MAX_TOKENS, on_token, model=state.claude_model, api_key=state.anthropic_api_key)
     else:
         prompt = f"{system}\n\n{user}"
-        result = await stream_gemini(prompt, cfg.ROUND2_MAX_TOKENS, on_token, api_key=state.google_api_key)
+        result = await stream_gemini(prompt, cfg.ROUND2_MAX_TOKENS, on_token, model=state.gemini_model, api_key=state.google_api_key)
 
     if result.error:
         await _push_async(state, {"type": "error", "model": model_key, "message": result.error})
