@@ -185,24 +185,51 @@
                 <h3 class="text-xl font-bold">API 키 설정</h3>
                 <button id="settings-close-btn" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
             </div>
-            <p class="text-sm text-gray-500 mb-6 bg-blue-50 border border-blue-100 rounded-lg p-3">
-                🔒 키는 <strong>이 브라우저에만 저장</strong>되며 서버에 전달되더라도 DB에 기록되지 않습니다. Claude(필수) + Gemini(필수) 키가 있어야 토론이 시작됩니다.
+            <p class="text-sm text-gray-600 mb-5 bg-blue-50 border border-blue-100 rounded-lg p-3 leading-relaxed">
+                🔒 키는 <strong>이 브라우저(localStorage)에만 저장</strong>됩니다. 서버로 전달되더라도 DB에 절대 기록되지 않으며 요청이 끝나면 메모리에서 사라집니다.
             </p>
+
+            <!-- How to get keys -->
+            <div class="mb-5 bg-gray-50 rounded-xl p-4 space-y-3 text-sm">
+                <p class="font-semibold text-gray-700">API 키 발급 방법</p>
+                <div class="flex gap-3 items-start">
+                    <span class="mt-0.5 w-5 h-5 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-xs font-bold flex-shrink-0">1</span>
+                    <div>
+                        <p class="font-medium text-gray-700">Anthropic (Claude) — 필수</p>
+                        <p class="text-gray-500 text-xs mt-0.5">가입 후 카드 등록 없이 $5 무료 크레딧 제공</p>
+                        <a href="https://console.anthropic.com/settings/keys" target="_blank" class="text-blue-600 hover:underline text-xs font-medium">console.anthropic.com → API Keys → Create Key →</a>
+                    </div>
+                </div>
+                <div class="flex gap-3 items-start">
+                    <span class="mt-0.5 w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold flex-shrink-0">2</span>
+                    <div>
+                        <p class="font-medium text-gray-700">Google AI (Gemini) — 필수</p>
+                        <p class="text-gray-500 text-xs mt-0.5">Google 계정만 있으면 무료로 발급 가능</p>
+                        <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-blue-600 hover:underline text-xs font-medium">aistudio.google.com → Get API key →</a>
+                    </div>
+                </div>
+                <div class="flex gap-3 items-start">
+                    <span class="mt-0.5 w-5 h-5 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-xs font-bold flex-shrink-0">3</span>
+                    <div>
+                        <p class="font-medium text-gray-700">OpenAI — 선택사항</p>
+                        <p class="text-gray-500 text-xs mt-0.5">없으면 Claude가 심판 역할. 있으면 GPT-4o가 심판.</p>
+                        <a href="https://platform.openai.com/api-keys" target="_blank" class="text-blue-600 hover:underline text-xs font-medium">platform.openai.com → API keys →</a>
+                    </div>
+                </div>
+            </div>
+
             <div class="space-y-4">
                 <div>
                     <label class="block text-sm font-semibold text-gray-700 mb-1">Anthropic API Key <span class="text-red-500">*</span></label>
                     <input type="password" id="input-anthropic-key" placeholder="sk-ant-..." class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-mono">
-                    <p class="text-xs text-gray-400 mt-1">Claude 토론자 + 심판용. <a href="https://console.anthropic.com/settings/keys" target="_blank" class="text-blue-500 hover:underline">발급 받기 →</a></p>
                 </div>
                 <div>
                     <label class="block text-sm font-semibold text-gray-700 mb-1">Google AI API Key <span class="text-red-500">*</span></label>
                     <input type="password" id="input-google-key" placeholder="AIza..." class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-mono">
-                    <p class="text-xs text-gray-400 mt-1">Gemini 토론자용. <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-blue-500 hover:underline">발급 받기 →</a></p>
                 </div>
                 <div>
-                    <label class="block text-sm font-semibold text-gray-700 mb-1">OpenAI API Key <span class="text-gray-400 text-xs font-normal">(선택 — 심판 강화용)</span></label>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">OpenAI API Key <span class="text-gray-400 text-xs font-normal">(선택)</span></label>
                     <input type="password" id="input-openai-key" placeholder="sk-..." class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-mono">
-                    <p class="text-xs text-gray-400 mt-1">있으면 GPT-4o가 심판, 없으면 Claude가 대신합니다.</p>
                 </div>
             </div>
             <div class="flex justify-between items-center mt-8">

@@ -71,20 +71,23 @@ async def stream_claude(
         return StreamResult(error="ANTHROPIC_API_KEY not configured")
 
     result = StreamResult()
+
+    async def _stream() -> None:
+        async with client.messages.stream(
+            model=model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        ) as stream:
+            async for text in stream.text_stream:
+                result.text += text
+                await on_token(text)
+            final = await stream.get_final_message()
+            result.tokens_input = final.usage.input_tokens
+            result.tokens_output = final.usage.output_tokens
+
     try:
-        async with asyncio.timeout(LLM_TIMEOUT_SECONDS):
-            async with client.messages.stream(
-                model=model,
-                max_tokens=max_tokens,
-                system=system,
-                messages=[{"role": "user", "content": user}],
-            ) as stream:
-                async for text in stream.text_stream:
-                    result.text += text
-                    await on_token(text)
-                final = await stream.get_final_message()
-                result.tokens_input = final.usage.input_tokens
-                result.tokens_output = final.usage.output_tokens
+        await asyncio.wait_for(_stream(), timeout=LLM_TIMEOUT_SECONDS)
     except asyncio.TimeoutError:
         result.error = f"Claude timeout after {LLM_TIMEOUT_SECONDS}s"
     except anthropic.APIError as e:
@@ -119,20 +122,21 @@ async def stream_gemini(
     )
 
     result = StreamResult()
-    try:
-        async with asyncio.timeout(LLM_TIMEOUT_SECONDS):
-            # Drain token queue until None sentinel
-            while True:
-                token = await token_queue.get()
-                if token is None:
-                    break
-                result.text += token
-                await on_token(token)
 
-            thread_result = await future
-            result.tokens_input = thread_result.tokens_input
-            result.tokens_output = thread_result.tokens_output
-            result.error = thread_result.error
+    async def _drain() -> None:
+        while True:
+            token = await token_queue.get()
+            if token is None:
+                break
+            result.text += token
+            await on_token(token)
+        thread_result = await future
+        result.tokens_input = thread_result.tokens_input
+        result.tokens_output = thread_result.tokens_output
+        result.error = thread_result.error
+
+    try:
+        await asyncio.wait_for(_drain(), timeout=LLM_TIMEOUT_SECONDS)
     except asyncio.TimeoutError:
         result.error = f"Gemini timeout after {LLM_TIMEOUT_SECONDS}s"
     except Exception as e:
@@ -215,26 +219,29 @@ async def stream_openai(
 
     client = AsyncOpenAI(api_key=key)
     result = StreamResult()
+
+    async def _stream() -> None:
+        async with client.chat.completions.create(
+            model=model,
+            max_tokens=max_tokens,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            stream=True,
+            stream_options={"include_usage": True},
+        ) as stream:
+            async for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    text = chunk.choices[0].delta.content
+                    result.text += text
+                    await on_token(text)
+                if chunk.usage:
+                    result.tokens_input = chunk.usage.prompt_tokens
+                    result.tokens_output = chunk.usage.completion_tokens
+
     try:
-        async with asyncio.timeout(LLM_TIMEOUT_SECONDS):
-            async with client.chat.completions.create(
-                model=model,
-                max_tokens=max_tokens,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                stream=True,
-                stream_options={"include_usage": True},
-            ) as stream:
-                async for chunk in stream:
-                    if chunk.choices and chunk.choices[0].delta.content:
-                        text = chunk.choices[0].delta.content
-                        result.text += text
-                        await on_token(text)
-                    if chunk.usage:
-                        result.tokens_input = chunk.usage.prompt_tokens
-                        result.tokens_output = chunk.usage.completion_tokens
+        await asyncio.wait_for(_stream(), timeout=LLM_TIMEOUT_SECONDS)
     except asyncio.TimeoutError:
         result.error = f"OpenAI timeout after {LLM_TIMEOUT_SECONDS}s"
     except Exception as e:
