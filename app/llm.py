@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Callable, Awaitable
 
@@ -90,6 +91,13 @@ async def stream_claude(
         await asyncio.wait_for(_stream(), timeout=LLM_TIMEOUT_SECONDS)
     except asyncio.TimeoutError:
         result.error = f"Claude timeout after {LLM_TIMEOUT_SECONDS}s"
+    except anthropic.APIStatusError as e:
+        if e.status_code == 400 and "credit" in str(e).lower():
+            result.error = "Claude API error: 크레딧이 부족합니다. Anthropic 콘솔에서 크레딧을 충전해주세요. (Credit balance too low)"
+        elif e.status_code == 429:
+            result.error = "Claude API error: 요청 한도 초과 (rate limit). 잠시 후 다시 시도해주세요."
+        else:
+            result.error = f"Claude API error: {e}"
     except anthropic.APIError as e:
         result.error = f"Claude API error: {e}"
     except Exception as e:
@@ -144,6 +152,14 @@ async def stream_gemini(
     return result
 
 
+_GEMINI_RETRY_DELAYS = [5, 15, 30]  # seconds between retries on 429
+
+
+def _is_gemini_rate_limit(e: Exception) -> bool:
+    msg = str(e).lower()
+    return "429" in msg or "resource exhausted" in msg or "quota" in msg or "rate" in msg
+
+
 def _gemini_stream_in_thread_sync(
     prompt: str,
     max_tokens: int,
@@ -154,47 +170,65 @@ def _gemini_stream_in_thread_sync(
 ) -> StreamResult:
     """Sync version that signals completion via None sentinel in queue."""
     result = StreamResult()
-    try:
-        model = genai.GenerativeModel(model_name)
-        generation_config = genai.types.GenerationConfig(
-            max_output_tokens=max_tokens,
-            temperature=0.7,
-        )
-        safety_settings = [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_ONLY_HIGH"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
-        ]
-        response = model.generate_content(
-            prompt,
-            stream=True,
-            generation_config=generation_config,
-            safety_settings=safety_settings,
-        )
-        for chunk in response:
-            text = ""
-            try:
-                text = chunk.text
-            except Exception:
-                pass
-            if text:
-                result.text += text
-                on_token_sync(text)
+    last_error: Exception | None = None
 
+    for attempt, delay in enumerate([0] + _GEMINI_RETRY_DELAYS):
+        if delay > 0:
+            logger.warning("Gemini 429 rate limit, retrying in %ds (attempt %d)...", delay, attempt + 1)
+            time.sleep(delay)
         try:
-            meta = response.usage_metadata
-            if meta:
-                result.tokens_input = getattr(meta, "prompt_token_count", 0) or 0
-                result.tokens_output = getattr(meta, "candidates_token_count", 0) or 0
-        except Exception:
-            result.tokens_input = len(prompt) // 4
-            result.tokens_output = len(result.text) // 4
-    except Exception as e:
-        result.error = f"Gemini error: {e}"
-        logger.exception("Gemini sync stream failed")
-    finally:
-        loop.call_soon_threadsafe(token_queue.put_nowait, None)
+            model = genai.GenerativeModel(model_name)
+            generation_config = genai.types.GenerationConfig(
+                max_output_tokens=max_tokens,
+                temperature=0.7,
+            )
+            safety_settings = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_ONLY_HIGH"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
+            ]
+            response = model.generate_content(
+                prompt,
+                stream=True,
+                generation_config=generation_config,
+                safety_settings=safety_settings,
+            )
+            for chunk in response:
+                text = ""
+                try:
+                    text = chunk.text
+                except Exception:
+                    pass
+                if text:
+                    result.text += text
+                    on_token_sync(text)
+
+            try:
+                meta = response.usage_metadata
+                if meta:
+                    result.tokens_input = getattr(meta, "prompt_token_count", 0) or 0
+                    result.tokens_output = getattr(meta, "candidates_token_count", 0) or 0
+            except Exception:
+                result.tokens_input = len(prompt) // 4
+                result.tokens_output = len(result.text) // 4
+
+            last_error = None
+            break  # success
+        except Exception as e:
+            last_error = e
+            if _is_gemini_rate_limit(e):
+                continue  # retry
+            logger.exception("Gemini sync stream failed")
+            result.error = f"Gemini error: {e}"
+            loop.call_soon_threadsafe(token_queue.put_nowait, None)
+            return result
+
+    if last_error is not None:
+        result.error = "Gemini error: 요청 한도 초과 (429 rate limit). 잠시 후 다시 시도해주세요."
+        logger.error("Gemini rate limit exceeded after retries: %s", last_error)
+
+    loop.call_soon_threadsafe(token_queue.put_nowait, None)
     return result
 
 
